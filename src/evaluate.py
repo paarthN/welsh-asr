@@ -40,11 +40,13 @@ def main():
     p.add_argument("--out", default="results/whisper_baseline.json")
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--limit", type=int, default=0, help="smoke-test on N examples")
+    p.add_argument("--progress-every", type=int, default=25)
+    p.add_argument("--dtype", default="fp16", choices=["fp16", "fp32"])
     args = p.parse_args()
 
     device = pick_device()
     is_whisper = "whisper" in args.model.lower()
-    print(f"model={args.model} device={device} whisper={is_whisper}")
+    print(f"model={args.model} device={device} whisper={is_whisper}", flush=True)
 
     kwargs = {}
     if is_whisper:
@@ -57,7 +59,7 @@ def main():
         "automatic-speech-recognition",
         model=args.model,
         device=device,
-        dtype=torch.float16 if device != "cpu" else torch.float32,
+        dtype=torch.float16 if (args.dtype == "fp16" and device != "cpu") else torch.float32,
         **kwargs,
     )
 
@@ -76,9 +78,9 @@ def main():
             "ref": normalize_text(ex["transcription"]),
             "ref_raw": ex["transcription"],
         })
-        if (i + 1) % 50 == 0:
+        if (i + 1) % args.progress_every == 0:
             rate = (i + 1) / (time.time() - started)
-            print(f"  {i+1}/{len(ds)}  {rate:.2f} utt/s  eta {(len(ds)-i-1)/rate/60:.1f} min")
+            print(f"  {i+1}/{len(ds)}  {rate:.2f} utt/s  eta {(len(ds)-i-1)/rate/60:.1f} min", flush=True)
 
     keep = [r for r in rows if r["ref"].strip()]
     clean = [r for r in keep if not has_digit(r["ref"])]

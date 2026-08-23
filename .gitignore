@@ -60,3 +60,6 @@ data/*
 *.pt
 *.bin
 *.safetensors
+
+# Working notes, not part of the deliverable
+PLAN.md
