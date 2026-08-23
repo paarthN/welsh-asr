@@ -59,7 +59,9 @@ def wer_by_length(runs, out_path):
     ax.set_xlabel("utterance duration")
     ax.set_ylabel("mean WER")
     ax.set_title("WER by utterance length — FLEURS Welsh test")
-    ax.legend()
+    # Headroom so the legend cannot sit on top of a bar label.
+    ax.set_ylim(0, np.nanmax([b.get_height() for b in ax.containers[0]]) * 1.28)
+    ax.legend(loc="upper right", framealpha=0.95)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     print(f"wrote {out_path}")
