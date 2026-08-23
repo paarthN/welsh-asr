@@ -96,7 +96,7 @@ def main():
     p.add_argument("--batch-size", type=int, default=2)
     p.add_argument("--grad-accum", type=int, default=8)
     p.add_argument("--lr", type=float, default=3e-4)
-    p.add_argument("--warmup-steps", type=int, default=500)
+    p.add_argument("--warmup-steps", type=int, default=200)
     p.add_argument("--save-steps", type=int, default=400)
     p.add_argument("--eval-steps", type=int, default=400)
     p.add_argument("--max-duration", type=float, default=30.0)
@@ -179,7 +179,9 @@ def main():
         dataloader_num_workers=0 if args.smoke else 2,
         report_to="none" if args.smoke else "wandb",
         run_name=args.run_name,
-        push_to_hub=args.push_to_hub,
+        # Deliberately NOT push_to_hub=True: that uploads ~1.2GB at every
+        # save_steps. Checkpoints live on Drive; only the final model is pushed.
+        push_to_hub=False,
         hub_model_id=args.hub_model_id,
         load_best_model_at_end=not args.smoke,
         metric_for_best_model="wer",
