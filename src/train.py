@@ -109,6 +109,8 @@ def main():
     p.add_argument("--hub-model-id", default=None)
     p.add_argument("--run-name", default="welsh-xlsr-run1")
     p.add_argument("--smoke", action="store_true", help="tiny CPU run to validate plumbing")
+    p.add_argument("--cpu", action="store_true", help="force CPU (for local testing)")
+    p.add_argument("--tiny", type=int, default=0, help="subsample train to N examples")
     args = p.parse_args()
 
     processor = Wav2Vec2Processor.from_pretrained(str(PROCESSOR_DIR))
@@ -135,6 +137,9 @@ def main():
         val = val.select(range(min(args.eval_max_samples, len(val))))
     if args.smoke:
         train, val = train.select(range(4)), val.select(range(2))
+    elif args.tiny:
+        train = train.select(range(min(args.tiny, len(train))))
+        val = val.select(range(min(2, len(val))))
     print(f"train={len(train)}  val={len(val)}  vocab={len(processor.tokenizer)}", flush=True)
 
     model = Wav2Vec2ForCTC.from_pretrained(
@@ -173,17 +178,17 @@ def main():
         save_steps=args.save_steps,
         save_total_limit=2,
         logging_steps=1 if args.smoke else 100,
-        fp16=use_cuda and not args.smoke,
+        fp16=use_cuda and not (args.smoke or args.cpu),
         gradient_checkpointing=args.gradient_checkpointing,
-        use_cpu=args.smoke,
+        use_cpu=args.smoke or args.cpu,
         dataloader_num_workers=0 if args.smoke else 2,
-        report_to="none" if args.smoke else "wandb",
+        report_to="none" if (args.smoke or args.cpu) else "wandb",
         run_name=args.run_name,
         # Deliberately NOT push_to_hub=True: that uploads ~1.2GB at every
         # save_steps. Checkpoints live on Drive; only the final model is pushed.
         push_to_hub=False,
         hub_model_id=args.hub_model_id,
-        load_best_model_at_end=not args.smoke,
+        load_best_model_at_end=not (args.smoke or args.cpu),
         metric_for_best_model="wer",
         greater_is_better=False,
     )
