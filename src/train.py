@@ -97,8 +97,8 @@ def main():
     p.add_argument("--grad-accum", type=int, default=8)
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--warmup-steps", type=int, default=200)
-    p.add_argument("--save-steps", type=int, default=400)
-    p.add_argument("--eval-steps", type=int, default=400)
+    p.add_argument("--save-steps", type=int, default=200)
+    p.add_argument("--eval-steps", type=int, default=200)
     p.add_argument("--max-duration", type=float, default=30.0)
     p.add_argument("--ctc-margin", type=float, default=2.0,
                    help="require frames >= margin * label chars")
@@ -112,6 +112,14 @@ def main():
     p.add_argument("--cpu", action="store_true", help="force CPU (for local testing)")
     p.add_argument("--tiny", type=int, default=0, help="subsample train to N examples")
     args = p.parse_args()
+
+    # load_best_model_at_end requires save_steps to be a multiple of eval_steps.
+    # Fail here with a clear message rather than deep inside the Trainer.
+    if args.save_steps % args.eval_steps != 0:
+        raise SystemExit(
+            f"--save-steps ({args.save_steps}) must be a multiple of "
+            f"--eval-steps ({args.eval_steps})."
+        )
 
     processor = Wav2Vec2Processor.from_pretrained(str(PROCESSOR_DIR))
 
