@@ -98,6 +98,9 @@ def main():
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--warmup-steps", type=int, default=200)
     p.add_argument("--save-steps", type=int, default=200)
+    p.add_argument("--save-total-limit", type=int, default=2)
+    p.add_argument("--save-only-model", action="store_true",
+                   help="omit optimizer state: ~1.2GB per checkpoint instead of ~3.6GB")
     p.add_argument("--eval-steps", type=int, default=200)
     p.add_argument("--max-duration", type=float, default=30.0)
     p.add_argument("--ctc-margin", type=float, default=2.0,
@@ -184,7 +187,10 @@ def main():
         eval_strategy="steps",
         eval_steps=2 if args.smoke else args.eval_steps,
         save_steps=args.save_steps,
-        save_total_limit=2,
+        save_total_limit=args.save_total_limit,
+        # Optimizer state is two thirds of a checkpoint. Dropping it costs a
+        # brief loss spike on resume while Adam rebuilds momentum.
+        save_only_model=args.save_only_model,
         logging_steps=1 if args.smoke else 100,
         fp16=use_cuda and not (args.smoke or args.cpu),
         gradient_checkpointing=args.gradient_checkpointing,
