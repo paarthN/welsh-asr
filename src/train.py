@@ -8,6 +8,7 @@ which avoids a preprocessing pass just to learn clip lengths.
     python src/train.py --max-steps 2100 --batch-size 2 --grad-accum 8
 """
 import argparse
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,6 +17,7 @@ import numpy as np
 import torch
 from transformers import (
     Trainer,
+    TrainerCallback,
     TrainingArguments,
     Wav2Vec2ForCTC,
     Wav2Vec2Processor,
@@ -56,6 +58,40 @@ class DataCollatorCTCWithPadding:
             labels_batch["attention_mask"].ne(1), -100
         )
         return batch
+
+
+class VerifySaveCallback(TrainerCallback):
+    """Fail loudly when a checkpoint did not actually land on disk.
+
+    A full Google Drive does not raise: the directory is created and the large
+    tensor file is silently truncated or omitted, so training continues and the
+    damage only surfaces on the next resume. Checking immediately turns that
+    into an error at the point it happens.
+    """
+
+    MIN_MODEL_BYTES = 500 * 1024 * 1024  # xls-r-300m weights are ~1.2GB
+
+    def on_save(self, args, state, control, **kwargs):
+        ckpt = Path(args.output_dir) / f"checkpoint-{state.global_step}"
+        weights = [f for f in ("model.safetensors", "pytorch_model.bin")
+                   if (ckpt / f).is_file()]
+        if not weights:
+            raise RuntimeError(
+                f"{ckpt} has no model weights. The volume is almost certainly "
+                f"full: free space where the checkpoint went, then resume."
+            )
+        size = (ckpt / weights[0]).stat().st_size
+        if size < self.MIN_MODEL_BYTES:
+            raise RuntimeError(
+                f"{ckpt}/{weights[0]} is only {size/1e9:.2f}GB, expected >1GB. "
+                f"The write was truncated, most likely out of disk space."
+            )
+        free = shutil.disk_usage(ckpt).free
+        print(f"[checkpoint ok] step {state.global_step}: "
+              f"{size/1e9:.2f}GB saved, {free/1e9:.1f}GB free", flush=True)
+        if free < 2 * 1024**3:
+            print(f"[WARNING] only {free/1e9:.1f}GB free. Empty Google Drive's "
+                  f"Trash: deleted checkpoints keep occupying the quota.", flush=True)
 
 
 def build_compute_metrics(processor):
@@ -122,6 +158,20 @@ def main():
         raise SystemExit(
             f"--save-steps ({args.save_steps}) must be a multiple of "
             f"--eval-steps ({args.eval_steps})."
+        )
+
+    # Refuse to start without room for a checkpoint plus the final save. A full
+    # volume does not raise during save; it silently produces empty checkpoints.
+    out = Path(args.output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    free_gb = shutil.disk_usage(out).free / 1e9
+    need_gb = 1.4 if args.save_only_model else 3.9
+    print(f"free at {out}: {free_gb:.1f}GB (a checkpoint needs ~{need_gb}GB)", flush=True)
+    if free_gb < need_gb:
+        raise SystemExit(
+            f"Only {free_gb:.1f}GB free but a checkpoint needs ~{need_gb}GB.\n"
+            f"Free space first (on Google Drive, emptying the Trash is usually "
+            f"what actually reclaims it), or pass --save-only-model."
         )
 
     processor = Wav2Vec2Processor.from_pretrained(str(PROCESSOR_DIR))
@@ -216,6 +266,7 @@ def main():
         train_dataset=train,
         eval_dataset=val,
         processing_class=processor,
+        callbacks=[VerifySaveCallback()],
     )
 
     trainer.train(resume_from_checkpoint=args.resume or None)
