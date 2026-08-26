@@ -94,6 +94,29 @@ class VerifySaveCallback(TrainerCallback):
                   f"Trash: deleted checkpoints keep occupying the quota.", flush=True)
 
 
+def latest_valid_checkpoint(output_dir):
+    """Newest checkpoint that actually holds weights, or None.
+
+    A checkpoint written to a full volume still leaves its directory behind, and
+    Trainer picks the highest-numbered one without inspecting it, so a single
+    failed save blocks every later resume.
+    """
+    out = Path(output_dir)
+    if not out.is_dir():
+        return None
+    found = []
+    for d in out.glob("checkpoint-*"):
+        if not d.is_dir():
+            continue
+        weights = next((d / f for f in ("model.safetensors", "pytorch_model.bin")
+                        if (d / f).is_file()), None)
+        if weights and weights.stat().st_size > 500 * 1024 * 1024:
+            found.append((int(d.name.split("-")[1]), d))
+        else:
+            print(f"skipping {d.name}: no usable weights", flush=True)
+    return str(max(found)[1]) if found else None
+
+
 def build_compute_metrics(processor):
     pad_id = processor.tokenizer.pad_token_id
 
@@ -269,7 +292,14 @@ def main():
         callbacks=[VerifySaveCallback()],
     )
 
-    trainer.train(resume_from_checkpoint=args.resume or None)
+    resume = None
+    if args.resume:
+        resume = latest_valid_checkpoint(args.output_dir)
+        if resume is None:
+            print("no usable checkpoint found; starting from scratch", flush=True)
+        else:
+            print(f"resuming from {resume}", flush=True)
+    trainer.train(resume_from_checkpoint=resume)
     trainer.save_model(args.output_dir)
     processor.save_pretrained(args.output_dir)
     if args.push_to_hub:
