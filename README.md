@@ -1,7 +1,6 @@
 # Welsh ASR — fine-tuned XLS-R for Welsh speech recognition
 
-[Model on the Hugging Face Hub](https://huggingface.co/pnawani/welsh-asr-xlsr-300m) ·
-[Training run on W&B](https://wandb.ai/paarth-nawani-ucsd/welsh-asr)
+[Model on the Hugging Face Hub](https://huggingface.co/pnawani/welsh-asr-xlsr-300m)
 
 Wav2Vec2 XLS-R (300m) fine-tuned on FLEURS Welsh, evaluated against zero-shot
 Whisper-small on the same test set and through an identical normalization path.
