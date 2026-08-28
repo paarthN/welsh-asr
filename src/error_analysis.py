@@ -150,7 +150,7 @@ def worst_cases(data, n=5):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--baseline", default="results/whisper_baseline.json")
-    p.add_argument("--finetuned", default=None)
+    p.add_argument("--finetuned", default="results/finetuned_results.json")
     p.add_argument("--results-dir", default="results")
     args = p.parse_args()
 
