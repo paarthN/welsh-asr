@@ -38,7 +38,8 @@ def main():
     p.add_argument("--model", default="openai/whisper-small")
     p.add_argument("--split", default="test")
     p.add_argument("--out", default="results/whisper_baseline.json")
-    p.add_argument("--batch-size", type=int, default=8)
+    p.add_argument("--batch-size", type=int, default=8,
+                   help="clips per inference batch")
     p.add_argument("--limit", type=int, default=0, help="smoke-test on N examples")
     p.add_argument("--progress-every", type=int, default=25)
     p.add_argument("--dtype", default="fp16", choices=["fp16", "fp32"])
@@ -67,20 +68,35 @@ def main():
     if args.limit:
         ds = ds.select(range(args.limit))
 
-    rows, started = [], time.time()
-    for i, ex in enumerate(ds):
-        audio = decode_audio(ex)
-        text = pipe({"raw": audio, "sampling_rate": SAMPLE_RATE})["text"]
-        rows.append({
-            "id": ex["id"],
-            "duration_s": len(audio) / SAMPLE_RATE,
-            "pred": normalize_text(text),
-            "ref": normalize_text(ex["transcription"]),
-            "ref_raw": ex["transcription"],
-        })
-        if (i + 1) % args.progress_every == 0:
-            rate = (i + 1) / (time.time() - started)
-            print(f"  {i+1}/{len(ds)}  {rate:.2f} utt/s  eta {(len(ds)-i-1)/rate/60:.1f} min", flush=True)
+    # Group similar-length clips so padding within a batch stays small, and
+    # process in batches: one-at-a-time inference on MPS degrades badly as
+    # allocations fragment over hundreds of iterations.
+    order = sorted(range(len(ds)), key=lambda i: ds[i]["num_samples"])
+
+    rows, started = {}, time.time()
+    for start in range(0, len(order), args.batch_size):
+        idx = order[start:start + args.batch_size]
+        batch = [ds[i] for i in idx]
+        audio = [decode_audio(ex) for ex in batch]
+        texts = pipe([{"raw": a, "sampling_rate": SAMPLE_RATE} for a in audio],
+                     batch_size=len(audio))
+        for i, ex, a, t in zip(idx, batch, audio, texts):
+            rows[i] = {
+                "id": ex["id"],
+                "duration_s": len(a) / SAMPLE_RATE,
+                "pred": normalize_text(t["text"]),
+                "ref": normalize_text(ex["transcription"]),
+                "ref_raw": ex["transcription"],
+            }
+        done = len(rows)
+        if device == "mps":
+            torch.mps.empty_cache()
+        if done % args.progress_every < args.batch_size:
+            rate = done / (time.time() - started)
+            print(f"  {done}/{len(ds)}  {rate:.2f} utt/s  "
+                  f"eta {(len(ds)-done)/max(rate,1e-9)/60:.1f} min", flush=True)
+
+    rows = [rows[i] for i in range(len(ds))]  # restore dataset order
 
     keep = [r for r in rows if r["ref"].strip()]
     clean = [r for r in keep if not has_digit(r["ref"])]
